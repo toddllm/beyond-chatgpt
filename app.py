@@ -1,17 +1,12 @@
-# You can find this code for Chainlit python streaming here (https://docs.chainlit.io/concepts/streaming/python)
-
-# OpenAI Chat completion
 import os
-from openai import AsyncOpenAI  # importing openai for API usage
+from openai import OpenAI
 import chainlit as cl  # importing chainlit for our app
-from chainlit.prompt import Prompt, PromptMessage  # importing prompt tools
-from chainlit.playground.providers import ChatOpenAI  # importing ChatOpenAI tools
-from dotenv import load_dotenv
 
-load_dotenv()
+# Read OpenAI API key from environment variable
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # ChatOpenAI Templates
-system_template = """You are a helpful assistant who always speaks in a pleasant tone!
+system_template = """You are a helpful assistant who always speaks like a pirate!
 """
 
 user_template = """{input}
@@ -37,44 +32,31 @@ async def start_chat():
 async def main(message: cl.Message):
     settings = cl.user_session.get("settings")
 
-    client = AsyncOpenAI()
-
-    print(message.content)
-
-    prompt = Prompt(
-        provider=ChatOpenAI.id,
-        messages=[
-            PromptMessage(
-                role="system",
-                template=system_template,
-                formatted=system_template,
-            ),
-            PromptMessage(
-                role="user",
-                template=user_template,
-                formatted=user_template.format(input=message.content),
-            ),
-        ],
-        inputs={"input": message.content},
-        settings=settings,
-    )
-
-    print([m.to_openai() for m in prompt.messages])
+    # Prepare the prompt
+    prompt = [
+        {"role": "system", "content": system_template},
+        {"role": "user", "content": user_template.format(input=message.content)},
+    ]
 
     msg = cl.Message(content="")
 
-    # Call OpenAI
-    async for stream_resp in await client.chat.completions.create(
-        messages=[m.to_openai() for m in prompt.messages], stream=True, **settings
-    ):
-        token = stream_resp.choices[0].delta.content
-        if not token:
-            token = ""
+    # Call OpenAI API with stream=True
+    response = client.chat.completions.create(
+        model=settings["model"],
+        messages=prompt,
+        temperature=settings["temperature"],
+        max_tokens=settings["max_tokens"],
+        top_p=settings["top_p"],
+        frequency_penalty=settings["frequency_penalty"],
+        presence_penalty=settings["presence_penalty"],
+        stream=True,
+    )
+
+    # Handle the response
+    for stream_resp in response:
+        # Directly access the 'content' attribute instead of using .get()
+        token = stream_resp.choices[0].delta.content if stream_resp.choices[0].delta.content else ''
         await msg.stream_token(token)
 
-    # Update the prompt object with the completion
-    prompt.completion = msg.content
-    msg.prompt = prompt
-
-    # Send and close the message stream
+    # Finalize the message
     await msg.send()
